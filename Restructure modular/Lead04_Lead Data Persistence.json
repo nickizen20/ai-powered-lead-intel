@@ -1,0 +1,273 @@
+{
+  "name": "Lead04_Lead Data Persistence",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "receivePersistenceRequest"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "email",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        272,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "splitForSheets"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_LEAD_LOG_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Master Lead Log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "upsertMasterLeadLog",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        608,
+        -272
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_LEAD_LOG_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Scoring History",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "lead_id": "={{ $json.lead_id }}",
+            "email": "={{ $json.email }}",
+            "final_score": "={{ $json.scoring.final_score }}",
+            "demographics_score": "={{ $json.scoring.component_scores.demographics }}",
+            "engagement_score": "={{ $json.scoring.component_scores.engagement }}",
+            "intent_score": "={{ $json.scoring.component_scores.intent }}",
+            "grade": "={{ $json.scoring.grade }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "recommendations": "={{ JSON.stringify($json.scoring.recommendations) }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "appendScoringHistory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        608,
+        -80
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Placeholder for dashboard update logic\nconst lead = $input.first().json;\n\nconst metrics = {\n  timestamp: new Date().toISOString(),\n  total_leads: 1,\n  hot_leads: lead.scoring.final_score >= 85 ? 1 : 0,\n  warm_leads: lead.scoring.final_score >= 60 && lead.scoring.final_score < 85 ? 1 : 0,\n  cold_leads: lead.scoring.final_score < 60 ? 1 : 0,\n  avg_score: lead.scoring.final_score\n};\n\nreturn [{ json: { ...lead, metrics } }];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "batchUpdateDashboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\nconst analytics = {\n  date: new Date().toISOString().split('T')[0],\n  total_leads_processed: 1,\n  avg_score: lead.scoring.final_score,\n  hot_leads: lead.scoring.final_score >= 85 ? 1 : 0,\n  warm_leads: lead.scoring.final_score >= 60 && lead.scoring.final_score < 85 ? 1 : 0,\n  cold_leads: lead.scoring.final_score < 60 ? 1 : 0,\n  source: lead.source,\n  enrichment_sources: lead.enrichment_sources\n};\n\nreturn [{ json: { ...lead, analytics } }];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "aggregateAnalytics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "mergeSheetResults",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        944,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    success: true,\n    sheets_updated: 4,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        -16
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "formatPersistenceResponse"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "receivePersistenceRequest": {
+      "main": [
+        [
+          {
+            "node": "splitForSheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "upsertMasterLeadLog": {
+      "main": [
+        [
+          {
+            "node": "mergeSheetResults",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "appendScoringHistory": {
+      "main": [
+        [
+          {
+            "node": "mergeSheetResults",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "batchUpdateDashboard": {
+      "main": [
+        [
+          {
+            "node": "mergeSheetResults",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "aggregateAnalytics": {
+      "main": [
+        [
+          {
+            "node": "mergeSheetResults",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "splitForSheets": {
+      "main": [
+        [
+          {
+            "node": "upsertMasterLeadLog",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "appendScoringHistory",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "batchUpdateDashboard",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "aggregateAnalytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mergeSheetResults": {
+      "main": [
+        [
+          {
+            "node": "formatPersistenceResponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "bfed16a5-0288-4299-9261-963957cc46b0",
+  "meta": {
+    "instanceId": "44b5a59a33562e784f2dc2302170b2503b4b272b919680cc66f4c1a5627bed28"
+  },
+  "id": "EXAMPLE_CRED_ID",
+  "tags": []
+}

@@ -1,0 +1,1921 @@
+{
+  "name": "MainFull_AI-Powered Lead Intelligence",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "webhookLeadIntake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        112
+      ],
+      "webhookId": "lead-intake"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\n// Get webhook data\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  try {\n    const lead = item.json;\n    const headers = item.json.headers || {};\n\n    // HMAC Signature Validation\n    const receivedSignature = headers['x-webhook-signature'];\n    const webhookSecret = process.env.WEBHOOK_SECRET || 'your-secret-key';\n\n    if (receivedSignature) {\n      const expectedSignature = crypto\n        .createHmac('sha256', webhookSecret)\n        .update(JSON.stringify(lead.body || lead))\n        .digest('hex');\n\n      if (receivedSignature !== expectedSignature) {\n        throw new Error('Invalid webhook signature');\n      }\n    }\n\n    // Extract body if wrapped\n    const data = lead.body || lead;\n\n    // Required fields validation\n    const required = ['email', 'company', 'first_name', 'last_name'];\n    const missing = required.filter(field => !data[field]);\n\n    if (missing.length > 0) {\n      throw new Error(`Missing required fields: ${missing.join(', ')}`);\n    }\n\n    // Email validation (improved)\n    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/;\n    if (!emailRegex.test(data.email)) {\n      throw new Error('Invalid email format');\n    }\n\n    // Helper functions\n    function generateUUID() {\n      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n        const r = Math.random() * 16 | 0;\n        const v = c === 'x' ? r : (r & 0x3 | 0x8);\n        return v.toString(16);\n      });\n    }\n\n    function capitalizeFirst(str) {\n      if (!str) return '';\n      return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();\n    }\n\n    function normalizePhone(phone) {\n      if (!phone) return null;\n      // E.164 format validation\n      const cleaned = phone.replace(/\\D/g, '');\n      return cleaned.length >= 10 ? cleaned : null;\n    }\n\n    function extractDomain(url) {\n      try {\n        if (!url) return null;\n        const domain = url\n          .replace(/^https?:\\/\\//, '')\n          .replace(/^www\\./, '')\n          .replace(/\\/.*$/, '')\n          .toLowerCase();\n        return domain;\n      } catch {\n        return null;\n      }\n    }\n\n    function normalizeCompanySize(size) {\n      if (!size) return 'Unknown';\n      if (typeof size === 'number') {\n        if (size <= 10) return 'Small (1-10)';\n        if (size <= 50) return 'Small (11-50)';\n        if (size <= 200) return 'Medium (51-200)';\n        if (size <= 500) return 'Medium (201-500)';\n        if (size <= 1000) return 'Large (501-1000)';\n        return 'Enterprise (1000+)';\n      }\n\n      const ranges = {\n        '1-10': 'Small (1-10)',\n        '11-50': 'Small (11-50)',\n        '51-200': 'Medium (51-200)',\n        '201-500': 'Medium (201-500)',\n        '501-1000': 'Large (501-1000)',\n        '1001+': 'Enterprise (1000+)',\n        '1000+': 'Enterprise (1000+)'\n      };\n\n      return ranges[size] || size;\n    }\n\n    // Normalize data\n    const normalized = {\n      // Identifiers\n      lead_id: generateUUID(),\n      email: data.email.toLowerCase().trim(),\n\n      // Contact Info\n      first_name: capitalizeFirst(data.first_name),\n      last_name: capitalizeFirst(data.last_name),\n      full_name: `${capitalizeFirst(data.first_name)} ${capitalizeFirst(data.last_name)}`,\n      title: data.title || data.job_title || 'Unknown',\n      phone: normalizePhone(data.phone),\n\n      // Company Info\n      company: data.company.trim(),\n      company_domain: extractDomain(data.website || data.company_website) || extractDomain(data.email),\n      industry: data.industry || 'Unknown',\n      company_size: normalizeCompanySize(data.company_size || data.employees),\n\n      // Source & Attribution\n      source: data.source || 'unknown',\n      utm_source: data.utm_source || null,\n      utm_medium: data.utm_medium || null,\n      utm_campaign: data.utm_campaign || null,\n\n      // Engagement Data\n      form_submissions: 1,\n      website_visits: parseInt(data.website_visits) || 0,\n      email_opens: parseInt(data.email_opens) || 0,\n      email_clicks: parseInt(data.email_clicks) || 0,\n\n      // Metadata\n      created_at: new Date().toISOString(),\n      ingested_at: new Date().toISOString(),\n      raw_data: JSON.stringify(data)\n    };\n\n    results.push({ json: normalized });\n\n  } catch (error) {\n    // Log error and continue (will be caught by error handling layer)\n    results.push({\n      json: {\n        error: true,\n        error_message: error.message,\n        error_node: 'validateLeadData',\n        raw_data: JSON.stringify(item.json)\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "validateLeadData",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -912,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_LEAD_LOG_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "checkDuplicateLead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -720,
+        112
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst lookupResult = $('checkDuplicateLead').all();\n\n// Check if lookup found results\nconst isDuplicate = lookupResult && lookupResult.length > 0 && lookupResult[0].json.row;\n\nreturn [{\n  json: {\n    ...item,\n    is_duplicate: isDuplicate,\n    existing_row: isDuplicate ? lookupResult[0].json.row : null\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "isDuplicateCheck",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -512,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "company_domain",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "splitForEnrichment",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -288,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://company.clearbit.com/v2/companies/find",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "clearbitApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "domain",
+              "value": "={{ $json.company_domain }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "enrichCompanyData",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        -64
+      ],
+      "alwaysOutputData": true,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\n// Extract company data from Clearbit response\nconst companyData = {\n  revenue: item.metrics?.estimatedAnnualRevenue || null,\n  employees: item.metrics?.employees || null,\n  founded: item.foundedYear || null,\n  funding: item.metrics?.raised || null,\n  tech_stack: item.tech || [],\n  industry: item.category?.industry || null,\n  description: item.description || null\n};\n\nreturn [{\n  json: {\n    enrichment_source: 'clearbit',\n    company_data: companyData\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "enrichCompanyDataTransform",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://nubela.co/proxycurl/api/v2/linkedin",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "proxycurlApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json.linkedin_url }}"
+            },
+            {
+              "name": "fallback_to_cache",
+              "value": "on-error"
+            },
+            {
+              "name": "use_cache",
+              "value": "if-present"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "enrichLinkedInProfile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        128
+      ],
+      "alwaysOutputData": true,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://' + $json.company_domain }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (compatible; n8nBot/1.0; +https://n8n.io)"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "analyzeCompanyWebsite",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        0,
+        496
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "title",
+              "cssSelector": "title"
+            },
+            {
+              "key": "description",
+              "cssSelector": "meta[name=\"description\"]"
+            },
+            {
+              "key": "keywords",
+              "cssSelector": "meta[name=\"keywords\"]"
+            },
+            {
+              "key": "h1",
+              "cssSelector": "h1"
+            },
+            {
+              "key": "pricing_page",
+              "cssSelector": "a[href*=\"pricing\"]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "parseWebsiteContent",
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        192,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_LEAD_LOG_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Master Lead Log",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "company",
+              "lookupValue": "={{ $json.company }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "lookupHistoricalData",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        0,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "mergeEnrichedData",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        400,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\n// Get enrichment data from merged sources\nconst enrichment = {\n  company: lead.enrichment_company || {},\n  linkedin: lead.enrichment_linkedin || {},\n  website: lead.enrichment_website || {},\n  historical: Array.isArray(lead.enrichment_historical) ? lead.enrichment_historical : []\n};\n\n// Helper functions\nfunction extractRevenueFromWebsite(website) {\n  if (!website || !website.description) return null;\n\n  const revenuePatterns = [\n    /\\$(\\d+)M revenue/i,\n    /revenue of \\$(\\d+)M/i,\n    /\\$(\\d+) million in sales/i\n  ];\n\n  for (const pattern of revenuePatterns) {\n    const match = website.description.match(pattern);\n    if (match) return `$${match[1]}M`;\n  }\n\n  return null;\n}\n\nfunction inferSeniority(title) {\n  if (!title) return 'Individual Contributor';\n  const titleLower = title.toLowerCase();\n\n  if (titleLower.includes('ceo') || titleLower.includes('president') || titleLower.includes('founder')) return 'C-Level';\n  if (titleLower.includes('cto') || titleLower.includes('cfo') || titleLower.includes('coo')) return 'C-Level';\n  if (titleLower.includes('vp') || titleLower.includes('vice president')) return 'VP';\n  if (titleLower.includes('director')) return 'Director';\n  if (titleLower.includes('manager')) return 'Manager';\n  if (titleLower.includes('senior') || titleLower.includes('lead')) return 'Senior';\n\n  return 'Individual Contributor';\n}\n\nfunction calculateEnrichmentScore(enrichment) {\n  let score = 0;\n  if (enrichment.company && Object.keys(enrichment.company).length > 0) score += 25;\n  if (enrichment.linkedin && Object.keys(enrichment.linkedin).length > 0) score += 25;\n  if (enrichment.website && Object.keys(enrichment.website).length > 0) score += 25;\n  if (enrichment.historical && enrichment.historical.length > 0) score += 25;\n  return score;\n}\n\n// Merge enrichment data with preference order\nconst enriched = {\n  ...lead,\n\n  // Company data (prefer API > website)\n  revenue: enrichment.company.revenue || extractRevenueFromWebsite(enrichment.website),\n  employees: enrichment.company.employees || enrichment.linkedin.company_size,\n  industry: enrichment.company.industry || lead.industry,\n  tech_stack: enrichment.company.tech_stack || [],\n  founded_year: enrichment.company.founded,\n  funding: enrichment.company.funding,\n\n  // Contact data (prefer LinkedIn > form)\n  verified_title: enrichment.linkedin.title || lead.title,\n  seniority: enrichment.linkedin.seniority || inferSeniority(lead.title),\n  years_experience: enrichment.linkedin.years_experience,\n\n  // Engagement signals\n  has_pricing_page: !!enrichment.website.pricing_page,\n  website_keywords: enrichment.website.keywords || [],\n\n  // Historical context\n  previous_submissions: enrichment.historical.length || 0,\n  last_contact_date: enrichment.historical[0]?.created_at,\n  past_scores: enrichment.historical.map(h => h.score).filter(Boolean) || [],\n\n  // Enrichment metadata\n  enrichment_sources: [\n    enrichment.company ? 'clearbit' : null,\n    enrichment.linkedin ? 'linkedin' : null,\n    enrichment.website ? 'website' : null,\n    enrichment.historical.length > 0 ? 'crm' : null\n  ].filter(Boolean),\n  enrichment_score: calculateEnrichmentScore(enrichment),\n  enriched_at: new Date().toISOString()\n};\n\nreturn [{ json: enriched }];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "normalizeEnrichedData",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "enrichment_score_check",
+              "leftValue": "={{ $json.enrichment_score }}",
+              "rightValue": 25,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "handleEnrichmentErrors",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        800,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "company_not_empty",
+              "leftValue": "={{ $json.company }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "company_length",
+              "leftValue": "={{ $json.company.length }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "title_not_empty",
+              "leftValue": "={{ $json.title }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "enrichment_sufficient",
+              "leftValue": "={{ $json.enrichment_score }}",
+              "rightValue": 25,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "preValidationCheck",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\n// Default scoring when insufficient data for AI\nconst defaultScore = 40; // Cold lead\n\nreturn [{\n  json: {\n    ...lead,\n    scoring: {\n      final_score: defaultScore,\n      grade: 'C',\n      label: 'Cold Lead',\n      priority: 'Nurture',\n      color: '#CCCCCC',\n      component_scores: {\n        demographics: 0,\n        engagement: 0,\n        intent: 0\n      },\n      weights: { demographics: 0.25, engagement: 0.35, intent: 0.40 },\n      recommendations: [{\n        type: 'data_enrichment',\n        action: 'Gather more data before scoring',\n        reason: 'Insufficient data for AI analysis'\n      }],\n      scored_at: new Date().toISOString(),\n      ai_skipped: true,\n      reason: 'Insufficient enrichment data'\n    }\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "useDefaultScore",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1888,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\n// Get component scores from AI nodes\nconst scores = {\n  demographics: $('scoreDemographics').first().json.score || 0,\n  engagement: $('scoreEngagement').first().json.score || 0,\n  intent: $('scoreIntent').first().json.score || 0\n};\n\n// Weighted calculation\nconst weights = {\n  demographics: 0.25,  // 25% - baseline fit\n  engagement: 0.35,    // 35% - behavior matters most\n  intent: 0.40         // 40% - buying intent is critical\n};\n\nconst finalScore = Math.round(\n  scores.demographics * weights.demographics +\n  scores.engagement * weights.engagement +\n  scores.intent * weights.intent\n);\n\n// Determine grade and priority\nlet grade, label, priority, color;\nif (finalScore >= 85) {\n  grade = 'A+';\n  label = 'Hot Lead';\n  priority = 'Immediate';\n  color = '#FF0000';\n} else if (finalScore >= 70) {\n  grade = 'A';\n  label = 'Qualified Lead';\n  priority = 'High';\n  color = '#FF6600';\n} else if (finalScore >= 55) {\n  grade = 'B';\n  label = 'Warm Lead';\n  priority = 'Medium';\n  color = '#FFAA00';\n} else if (finalScore >= 40) {\n  grade = 'C';\n  label = 'Cool Lead';\n  priority = 'Low';\n  color = '#FFDD00';\n} else {\n  grade = 'D';\n  label = 'Cold Lead';\n  priority = 'Nurture';\n  color = '#CCCCCC';\n}\n\n// Generate recommendations\nfunction generateRecommendations(scores, finalScore) {\n  const recs = [];\n\n  if (scores.engagement > 70 && scores.intent < 40) {\n    recs.push({\n      type: 'nurture',\n      action: 'Send educational content to build intent',\n      reason: 'High engagement but unclear buying intent'\n    });\n  }\n\n  if (scores.intent > 70 && scores.engagement < 40) {\n    recs.push({\n      type: 'engage',\n      action: 'Immediate outreach call recommended',\n      reason: 'Strong buying signals but low engagement'\n    });\n  }\n\n  if (scores.demographics >= 80) {\n    recs.push({\n      type: 'personalize',\n      action: 'Executive-level outreach with case studies',\n      reason: 'Perfect ICP match'\n    });\n  }\n\n  if (finalScore >= 70) {\n    recs.push({\n      type: 'follow_up',\n      action: 'Follow up within 24 hours',\n      reason: 'High-quality lead with strong signals'\n    });\n  }\n\n  return recs;\n}\n\nconst recommendations = generateRecommendations(scores, finalScore);\n\nreturn [{\n  json: {\n    ...lead,\n    scoring: {\n      final_score: finalScore,\n      grade: grade,\n      label: label,\n      priority: priority,\n      color: color,\n      component_scores: scores,\n      weights: weights,\n      recommendations: recommendations,\n      scored_at: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "calculateFinalScore",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.scoring.final_score }}",
+                    "rightValue": 85,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    },
+                    "id": "EXAMPLE-NODE-ID"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "hot_leads"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.scoring.final_score }}",
+                    "rightValue": 60,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    },
+                    "id": "EXAMPLE-NODE-ID"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "warm_leads"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.scoring.final_score }}",
+                    "rightValue": 60,
+                    "operator": {
+                      "type": "number",
+                      "operation": "lt"
+                    },
+                    "id": "EXAMPLE-NODE-ID"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cold_leads"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "classifyLeadTier",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3056,
+        -560
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C09FCRCG6JH",
+          "mode": "list",
+          "cachedResultName": "all-ExampleUser"
+        },
+        "text": "test",
+        "otherOptions": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "routeHotLeads",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        3360,
+        -736
+      ],
+      "webhookId": "EXAMPLE-WEBHOOK-ID",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Slack - nickizen20"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "customPropertiesUi": {
+            "customPropertiesValues": [
+              {
+                "property": "firstname",
+                "value": "={{ $json.first_name }}"
+              },
+              {
+                "property": "lastname",
+                "value": "={{ $json.last_name }}"
+              },
+              {
+                "property": "company",
+                "value": "={{ $json.company }}"
+              },
+              {
+                "property": "jobtitle",
+                "value": "={{ $json.verified_title }}"
+              },
+              {
+                "property": "lead_score",
+                "value": "={{ $json.scoring.final_score }}"
+              },
+              {
+                "property": "lead_grade",
+                "value": "={{ $json.scoring.grade }}"
+              },
+              {
+                "property": "lifecyclestage",
+                "value": "lead"
+              },
+              {
+                "property": "hs_lead_status",
+                "value": "NEW"
+              }
+            ]
+          }
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "routeWarmLeads",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        -544
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "nurture_strategy",
+              "name": "nurture_strategy",
+              "value": "long_term_education",
+              "type": "string"
+            },
+            {
+              "id": "next_action",
+              "name": "next_action",
+              "value": "Add to monthly newsletter",
+              "type": "string"
+            },
+            {
+              "id": "review_date",
+              "name": "review_date",
+              "value": "={{ $now.plus({ months: 3 }).toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "routeColdLeads",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3360,
+        -352
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "splitForSheets",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        3808,
+        -576
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_LEAD_LOG_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Master Lead Log",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "upsertMasterLeadLog",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4048,
+        -832
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_LEAD_LOG_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Scoring History",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "lead_id": "={{ $json.lead_id }}",
+            "email": "={{ $json.email }}",
+            "final_score": "={{ $json.scoring.final_score }}",
+            "demographics_score": "={{ $json.scoring.component_scores.demographics }}",
+            "engagement_score": "={{ $json.scoring.component_scores.engagement }}",
+            "intent_score": "={{ $json.scoring.component_scores.intent }}",
+            "grade": "={{ $json.scoring.grade }}",
+            "timestamp": "={{ $now.toISO() }}",
+            "recommendations": "={{ JSON.stringify($json.scoring.recommendations) }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "appendScoringHistory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4048,
+        -640
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Placeholder for dashboard update logic\nconst lead = $input.first().json;\n\nconst metrics = {\n  timestamp: new Date().toISOString(),\n  total_leads: 1,\n  hot_leads: lead.scoring.final_score >= 85 ? 1 : 0,\n  warm_leads: lead.scoring.final_score >= 60 && lead.scoring.final_score < 85 ? 1 : 0,\n  cold_leads: lead.scoring.final_score < 60 ? 1 : 0,\n  avg_score: lead.scoring.final_score\n};\n\nreturn [{ json: { ...lead, metrics } }];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "batchUpdateDashboard",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4048,
+        -464
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\nconst analytics = {\n  date: new Date().toISOString().split('T')[0],\n  total_leads_processed: 1,\n  avg_score: lead.scoring.final_score,\n  hot_leads: lead.scoring.final_score >= 85 ? 1 : 0,\n  warm_leads: lead.scoring.final_score >= 60 && lead.scoring.final_score < 85 ? 1 : 0,\n  cold_leads: lead.scoring.final_score < 60 ? 1 : 0,\n  source: lead.source,\n  enrichment_sources: lead.enrichment_sources\n};\n\nreturn [{ json: { ...lead, analytics } }];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "aggregateAnalytics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4048,
+        -304
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "mergeSheetResults",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        4384,
+        -576
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\n// Calculate execution time\nconst executionStart = new Date(lead.ingested_at).getTime();\nconst executionEnd = Date.now();\nconst duration = (executionEnd - executionStart) / 1000;\n\n// Count operations\nconst apiCalls = lead.enrichment_sources?.length || 0;\nconst sheetsOps = 4;\n\nconst performance = {\n  execution_time_seconds: duration,\n  execution_time_human: `${Math.floor(duration / 60)}m ${Math.round(duration % 60)}s`,\n  api_calls_made: apiCalls,\n  sheets_operations: sheetsOps,\n  workflow_id: $workflow.id,\n  execution_id: $execution.id\n};\n\nreturn [{\n  json: {\n    ...lead,\n    performance\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "trackExecutionTime",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4592,
+        -576
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\n// Token cost per million tokens\nconst costs = {\n  'gemini-flash': 0,\n  'gpt-4o-mini': 0.15 / 1_000_000,\n  'claude-sonnet': 3 / 1_000_000,\n  'gpt-4o': 2.5 / 1_000_000\n};\n\n// Estimated token usage\nconst usage = {\n  demographics: { model: 'gemini-flash', tokens: 500 },\n  engagement: { model: 'gpt-4o-mini', tokens: 800 },\n  intent: { model: 'claude-sonnet', tokens: 1500 },\n  judge: { model: 'gpt-4o', tokens: 600 }\n};\n\n// Calculate total cost\nconst totalCost = Object.values(usage).reduce((sum, item) => {\n  return sum + (costs[item.model] * item.tokens);\n}, 0);\n\nconst aiCost = {\n  total_usd: totalCost.toFixed(6),\n  breakdown: usage,\n  cost_per_lead: totalCost.toFixed(6),\n  estimated_monthly: (totalCost * 500 * 30).toFixed(2),\n  ai_skipped: lead.scoring?.ai_skipped || false\n};\n\nreturn [{\n  json: {\n    ...lead,\n    ai_cost: aiCost\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "calculateAICost",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4784,
+        -576
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_LEAD_LOG_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Dead Letter Queue",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "lead_id": "={{ $json.lead_id }}",
+            "email": "={{ $json.email }}",
+            "error_message": "={{ $json.error_message }}",
+            "error_node": "={{ $json.error_node }}",
+            "error_stack": "={{ $json.error_stack }}",
+            "raw_data": "={{ JSON.stringify($json) }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "logErrors",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4672,
+        16
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C09FCRCG6JH",
+          "mode": "list",
+          "cachedResultName": "all-ExampleUser"
+        },
+        "text": "=✅ Lead processed successfully!\n\nLead: {{ $json.full_name }}\nScore: {{ $json.scoring.final_score }} ({{ $json.scoring.grade }})\nExecution Time: {{ $json.performance.execution_time_human }}\nAI Cost: ${{ $json.ai_cost.total_usd }}",
+        "otherOptions": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "sendSlackMonitoring",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        4976,
+        -576
+      ],
+      "webhookId": "EXAMPLE-WEBHOOK-ID",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Slack - nickizen20"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n    \"status\": $json.error ? \"error\" : \"success\",\n    \"lead_id\": $json.lead_id,\n    \"score\": $json.error ? null : $json.scoring.final_score,\n    \"grade\": $json.error ? null : $json.scoring.grade,\n    \"message\": $json.error ? $json.error_message : \"Lead processed successfully\",\n    \"error_details\": $json.error ? {\n      \"error_node\": $json.error_node,\n      \"error_stack\": $json.error_stack,\n      \"timestamp\": $now.toISO()\n    } : null\n  } }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "webhookResponse",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        5184,
+        -576
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Score this lead's demographic fit (0-100):\n\nLead Information:\n- Name: {{ $json.full_name }}\n- Title: {{ $json.verified_title }}\n- Seniority: {{ $json.seniority }}\n- Company: {{ $json.company }}\n- Industry: {{ $json.industry }}\n- Company Size: {{ $json.employees }} employees\n- Revenue: {{ $json.revenue }}\n\nScoring Criteria:\n- Title relevance to B2B SaaS buyers (0-30 points)\n  * C-Level/VP: 25-30 points\n  * Director/Manager: 15-24 points\n  * Individual Contributor: 0-14 points\n\n- Seniority level (0-25 points)\n  * C-Level: 25 points\n  * VP: 20-24 points\n  * Director: 15-19 points\n  * Manager: 10-14 points\n  * Other: 0-9 points\n\n- Company size fit (0-20 points)\n  * Ideal: 100-500 employees = 20 points\n  * Good: 50-100 or 500-1000 = 15 points\n  * Acceptable: 10-50 or 1000+ = 10 points\n  * Too small: <10 = 5 points\n\n- Industry fit (0-15 points)\n  * Perfect match (SaaS, Tech, Software): 15 points\n  * Good match (Professional Services): 10 points\n  * Neutral (Other industries): 5 points\n\n- Revenue range (0-10 points)\n  * $10M+: 10 points\n  * $1M-10M: 7 points\n  * $500K-1M: 5 points\n  * Unknown: 3 points\n\nReturn ONLY valid JSON (no markdown, no extra text):\n{\n  \"score\": 75,\n  \"reasoning\": \"VP-level executive at mid-sized SaaS company with strong revenue indicators\"\n}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "maxOutputTokens": 200,
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        1264,
+        -320
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "scoreDemographics",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Gemini(PaLM)- nickizen20"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Score this lead's engagement level (0-100):\n\nEngagement Metrics:\n- Website visits: {{ $json.website_visits }}\n- Email opens: {{ $json.email_opens }}\n- Email clicks: {{ $json.email_clicks }}\n- Form submissions: {{ $json.form_submissions }}\n- Pricing page viewed: {{ $json.has_pricing_page }}\n- Lead source: {{ $json.source }}\n- UTM Campaign: {{ $json.utm_campaign }}\n\nHistorical Context:\n- Previous submissions: {{ $json.previous_submissions }}\n- Past scores: {{ $json.past_scores }}\n- Last contact date: {{ $json.last_contact_date }}\n\nScoring Criteria:\n- Recency and frequency (0-30 points)\n  * Multiple visits in last 7 days: 25-30\n  * Single visit in last 30 days: 15-24\n  * Visit over 30 days ago: 0-14\n\n- Depth of engagement (0-25 points)\n  * Email clicks + form fills: 20-25\n  * Email opens only: 10-19\n  * Website visits only: 0-9\n\n- Intent signals (0-25 points)\n  * Viewed pricing page: +10\n  * Demo request: +15\n  * Multiple page views: +10\n  * Downloaded content: +10\n\n- Source quality (0-10 points)\n  * Direct/organic: 10\n  * Referral: 8\n  * Paid: 5\n  * Unknown: 2\n\n- Historical engagement (0-10 points)\n  * Returning lead with improving scores: 10\n  * New lead: 5\n  * Returning with declining scores: 2\n\nReturn ONLY valid JSON:\n{\n  \"score\": 65,\n  \"reasoning\": \"Moderate engagement with multiple website visits and email opens, but no high-intent actions like demo request\"\n}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "maxTokens": 250,
+          "temperature": 0.3
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1568,
+        -320
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "scoreEngagement",
+      "credentials": {
+        "openAiApi": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "OpenAi - ExampleOpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n    \"type\": \"object\",\n    \"properties\": {\n      \"score\": {\"type\": \"number\"},\n      \"reasoning\": {\"type\": \"string\"},\n      \"bant\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"budget\": {\"type\": \"object\"},\n          \"authority\": {\"type\": \"object\"},\n          \"need\": {\"type\": \"object\"},\n          \"timeline\": {\"type\": \"object\"}\n        }\n      },\n      \"confidence\": {\"type\": \"number\"}\n    }\n  }"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2000,
+        -144
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "OutputParser"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyze buying intent for this lead (0-100):\n\nLead Profile:\n- Name: {{ $json.full_name }}\n- Title: {{ $json.verified_title }}\n- Seniority: {{ $json.seniority }}\n- Company: {{ $json.company }} ({{ $json.employees }} employees)\n- Industry: {{ $json.industry }}\n- Revenue: {{ $json.revenue }}\n\nCompany Research:\n{{ $json.company_research }}\n\nTechnology Stack:\n{{ $json.tech_stack }}\n\nAnalyze using BANT framework:\n\n1. BUDGET - Do they have budget?\n   - Revenue indicators: {{ $json.revenue }}\n   - Funding: {{ $json.funding }}\n   - Company size suggests budget tier\n   - Score 0-25 points\n\n2. AUTHORITY - Are they decision-maker?\n   - Title: {{ $json.verified_title }}\n   - Seniority: {{ $json.seniority }}\n   - C-Level/VP = high authority\n   - Score 0-25 points\n\n3. NEED - Do they have pain points we solve?\n   - Industry alignment\n   - Tech stack compatibility\n   - Company research insights\n   - Score 0-25 points\n\n4. TIMELINE - Are there urgency signals?\n   - Recent hiring (VP Sales, engineers)\n   - Funding announcements\n   - Expansion plans\n   - Market timing\n   - Score 0-25 points\n\nAlso consider:\n- Buying signals: hiring, funding, expansion, new product launches\n- Pain points: scaling challenges, manual processes, compliance needs\n- Competitive landscape: current tools, switching costs\n- Technology fit: compatible systems, integration potential\n\nReturn ONLY valid JSON:\n{\n  \"score\": 75,\n  \"reasoning\": \"Strong buying intent based on recent VP Sales hire and Series B funding. High authority (C-Level), clear budget ($50M+ revenue), timeline driven by expansion to EMEA market.\",\n  \"bant\": {\n    \"budget\": {\n      \"score\": 20,\n      \"rationale\": \"$50M revenue with $20M recent funding indicates strong budget\"\n    },\n    \"authority\": {\n      \"score\": 25,\n      \"rationale\": \"CEO is ultimate decision-maker for enterprise solutions\"\n    },\n    \"need\": {\n      \"score\": 18,\n      \"rationale\": \"Scaling challenges and EMEA expansion create clear need for our solution\"\n    },\n    \"timeline\": {\n      \"score\": 22,\n      \"rationale\": \"Recent VP Sales hire suggests active buying cycle within 3-6 months\"\n    }\n  },\n  \"confidence\": 0.85\n}\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a helpful assistant that analyzes lead buying intent and scores leads from 0-100 using the BANT framework."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        1856,
+        -320
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "scoreIntent"
+    },
+    {
+      "parameters": {
+        "options": {
+          "maxTokens": 1000,
+          "temperature": 0.7
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1856,
+        -144
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "ChatModel"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "GPT-4O"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Evaluate the quality and consistency of this lead scoring:\n\nLead Data:\n{{ JSON.stringify($json, null, 2) }}\n\nFinal Score: {{ $json.scoring.final_score }}\n\nComponent Scores:\n- Demographics: {{ $json.scoring.component_scores.demographics }}\n- Engagement: {{ $json.scoring.component_scores.engagement }}\n- Intent: {{ $json.scoring.component_scores.intent }}\n\nGrade: {{ $json.scoring.grade }}\n\nQuality Checks:\n\n1. CONSISTENCY CHECK\n   - Do component scores align with lead data?\n   - Is final weighted score mathematically correct?\n   - Does grade match score thresholds?\n\n2. REASONABLENESS CHECK\n   - Are scores realistic given inputs?\n   - Any scores seem inflated or deflated?\n   - Do recommendations match scores?\n\n3. DATA QUALITY CHECK\n   - Are there missing critical fields?\n   - Any suspicious or placeholder data?\n   - Is enrichment sufficient?\n\n4. RED FLAGS\n   - Score manipulation indicators\n   - Unrealistic combinations (high score + no engagement)\n   - Inconsistent reasoning in component scores\n\nReturn ONLY valid JSON:\n{\n  \"quality_score\": 85,\n  \"is_valid\": true,\n  \"issues\": [],\n  \"suggested_adjustments\": \"None - scoring is consistent and reasonable\",\n  \"confidence\": 0.9\n}\n\nOR if issues found:\n{\n  \"quality_score\": 45,\n  \"is_valid\": false,\n  \"issues\": [\n    \"Demographics score (90) seems inflated given 'Manager' title\",\n    \"Intent score (80) inconsistent with zero engagement metrics\"\n  ],\n  \"suggested_adjustments\": \"Reduce demographics to 60-70 range, intent to 40-50 range based on actual data\",\n  \"confidence\": 0.65\n}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "maxTokens": 300,
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        2336,
+        -320
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "evaluateQuality",
+      "credentials": {
+        "openAiApi": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "OpenAi - ExampleOpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "leftValue": "={{ $json.quality_score }}",
+              "rightValue": 70,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2704,
+        -368
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "qualityValidation"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "name": "quality_issue",
+              "value": true,
+              "type": "string"
+            },
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "name": "quality_score",
+              "value": "={{ $json.quality_score }}",
+              "type": "string"
+            },
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "name": "quality_issues",
+              "value": "={{ JSON.stringify($json.issues) }}",
+              "type": "string"
+            },
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "name": "review_required",
+              "value": "true",
+              "type": "string"
+            },
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "name": "flagged_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2960,
+        -144
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "flagLowQuality"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1smFeYTj4r0bc6HnDw54wI8sOo1ooaVK_FXlEMQ7eSfs",
+          "mode": "list",
+          "cachedResultName": "LinkedIn Post Generator",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1smFeYTj4r0bc6HnDw54wI8sOo1ooaVK_FXlEMQ7eSfs/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1smFeYTj4r0bc6HnDw54wI8sOo1ooaVK_FXlEMQ7eSfs/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Keyword",
+              "displayName": "Keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Post Title",
+              "displayName": "Post Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Post Description",
+              "displayName": "Post Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Post Image Prompt",
+              "displayName": "Post Image Prompt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Image URL",
+              "displayName": "Image URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3168,
+        -144
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "logQualityError",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C09FCRCG6JH",
+          "mode": "list",
+          "cachedResultName": "all-ExampleUser"
+        },
+        "text": "=️Low Quality Score Detected\n\nLead: {{ $json.full_name }} ({{ $json.email }})\nQuality Score: {{ $json.quality_score }}/100\nValid: {{ $json.is_valid }}\n\nIssues Found:\n{{ $json.issues.join('\\n- ') }}\n\nSuggested Adjustments:\n{{ $json.suggested_adjustments }}\n\nFinal Score: {{ $json.scoring.final_score }}\nComponent Scores: D:{{ $json.scoring.component_scores.demographics }} | E:{{\n$json.scoring.component_scores.engagement }} | I:{{ $json.scoring.component_scores.intent }}\n\nAction: Manual review required",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        3360,
+        -144
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "sendQualityAlert",
+      "webhookId": "EXAMPLE-WEBHOOK-ID",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Slack - nickizen20"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": " const lead = $input.first().json;\n\n  // Use conservative fallback scoring when quality is low\n  const fallbackScore = 50; // Neutral score\n\n  return [{\n    json: {\n      ...lead,\n      scoring: {\n        ...lead.scoring,\n        final_score: fallbackScore,\n        grade: 'B',\n        label: 'Warm Lead',\n        priority: 'Medium',\n        quality_override: true,\n        original_score: lead.scoring.final_score,\n        fallback_reason: 'Low quality AI scoring - using conservative fallback'\n      }\n    }\n  }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3568,
+        -144
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "useFallbackScore"
+    },
+    {
+      "parameters": {
+        "content": "## Intake & Validation\n \n#### This layer receives incoming leads via webhook, validates required fields (email, company, first_name, last_name), normalizes data with proper formatting, and checks for duplicate leads in Google Sheets. HMAC signature validation ensures secure webhook requests. Invalid leads are logged to the Dead Letter Queue.",
+        "height": 416,
+        "width": 816
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1168,
+        -96
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Data Enrichment\n \n#### Four parallel enrichment streams gather company intelligence from Clearbit (company data), Proxycurl (LinkedIn profiles), website scraping (content analysis), and historical CRM data (Google Sheets). All sources merge and normalize into a unified lead profile with enrichment scoring. Continue-on-fail ensures partial enrichment if some sources timeout.",
+        "height": 976,
+        "width": 1344
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -336,
+        -272
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## AI Scoring Engine\n \n#### Pre-validation checks enrichment quality before invoking AI models to save costs. Leads with sufficient data flow through multi-model scoring: Gemini Flash (demographics - free), GPT-4o-mini (engagement), Claude Sonnet (intent analysis). Final weighted score determines lead grade and generates actionable recommendations. Insufficient data triggers default scoring path.",
+        "height": 784,
+        "width": 1600
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1024,
+        -528
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Intelligent Routing\n \n#### Switch node classifies leads into three tiers based on final score. Hot leads (85+) trigger immediate Slack alerts to sales team. Warm leads (60-84) sync to HubSpot CRM for nurture sequences. Cold leads (<60) receive long-term education strategy with 3-month review dates. Each tier has optimized follow-up actions.",
+        "height": 1040,
+        "width": 1088
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2640,
+        -928
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Google Sheets Sync\n \n#### Four parallel operations handle all data persistence. Master Lead Log uses upsert logic (update existing or append new) for idempotent processing. Scoring History creates comprehensive audit trail of all score calculations. Dashboard metrics aggregate real-time analytics by sales rep. All operations use auto-mapping for flexible schema evolution.",
+        "height": 944,
+        "width": 544
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        3744,
+        -1056
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## Monitoring & Response\n \n#### Performance tracking measures execution time, API calls, and sheets operations for each lead. AI cost calculator estimates spend per lead and projects monthly costs. Slack monitoring sends success summaries to workflow team. Webhook response node returns JSON acknowledgment with lead ID, score, and grade. Error paths flow through Dead Letter Queue before final response.",
+        "height": 496,
+        "width": 1088
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        4304,
+        -816
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## Error Handling Path\n\n#### Leads failing enrichment validation (score < 25) or encountering processing errors route to dedicated error handling. Dead Letter Queue logs full error context including timestamps, error messages, stack traces, and raw payload data for debugging. All errors still receive webhook response to prevent caller timeouts.",
+        "height": 368,
+        "width": 704,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        4368,
+        -192
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note6"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "webhookLeadIntake": {
+      "main": [
+        [
+          {
+            "node": "validateLeadData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validateLeadData": {
+      "main": [
+        [
+          {
+            "node": "checkDuplicateLead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "checkDuplicateLead": {
+      "main": [
+        [
+          {
+            "node": "isDuplicateCheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "isDuplicateCheck": {
+      "main": [
+        [
+          {
+            "node": "splitForEnrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "splitForEnrichment": {
+      "main": [
+        [
+          {
+            "node": "enrichCompanyData",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "enrichLinkedInProfile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "analyzeCompanyWebsite",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "lookupHistoricalData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "enrichCompanyData": {
+      "main": [
+        [
+          {
+            "node": "enrichCompanyDataTransform",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "enrichCompanyDataTransform": {
+      "main": [
+        [
+          {
+            "node": "mergeEnrichedData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "enrichLinkedInProfile": {
+      "main": [
+        [
+          {
+            "node": "mergeEnrichedData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "analyzeCompanyWebsite": {
+      "main": [
+        [
+          {
+            "node": "parseWebsiteContent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parseWebsiteContent": {
+      "main": [
+        [
+          {
+            "node": "mergeEnrichedData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "lookupHistoricalData": {
+      "main": [
+        [
+          {
+            "node": "mergeEnrichedData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mergeEnrichedData": {
+      "main": [
+        [
+          {
+            "node": "normalizeEnrichedData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "normalizeEnrichedData": {
+      "main": [
+        [
+          {
+            "node": "handleEnrichmentErrors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "handleEnrichmentErrors": {
+      "main": [
+        [
+          {
+            "node": "preValidationCheck",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "logErrors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "preValidationCheck": {
+      "main": [
+        [
+          {
+            "node": "scoreDemographics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "useDefaultScore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "useDefaultScore": {
+      "main": [
+        [
+          {
+            "node": "classifyLeadTier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "calculateFinalScore": {
+      "main": [
+        [
+          {
+            "node": "evaluateQuality",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "classifyLeadTier": {
+      "main": [
+        [
+          {
+            "node": "routeHotLeads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "routeWarmLeads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "routeColdLeads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "routeHotLeads": {
+      "main": [
+        [
+          {
+            "node": "splitForSheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "routeWarmLeads": {
+      "main": [
+        [
+          {
+            "node": "splitForSheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "routeColdLeads": {
+      "main": [
+        [
+          {
+            "node": "splitForSheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "splitForSheets": {
+      "main": [
+        [
+          {
+            "node": "upsertMasterLeadLog",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "appendScoringHistory",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "batchUpdateDashboard",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "aggregateAnalytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "upsertMasterLeadLog": {
+      "main": [
+        [
+          {
+            "node": "mergeSheetResults",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "appendScoringHistory": {
+      "main": [
+        [
+          {
+            "node": "mergeSheetResults",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "batchUpdateDashboard": {
+      "main": [
+        [
+          {
+            "node": "mergeSheetResults",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "aggregateAnalytics": {
+      "main": [
+        [
+          {
+            "node": "mergeSheetResults",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mergeSheetResults": {
+      "main": [
+        [
+          {
+            "node": "trackExecutionTime",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "trackExecutionTime": {
+      "main": [
+        [
+          {
+            "node": "calculateAICost",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "calculateAICost": {
+      "main": [
+        [
+          {
+            "node": "sendSlackMonitoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sendSlackMonitoring": {
+      "main": [
+        [
+          {
+            "node": "webhookResponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "logErrors": {
+      "main": [
+        [
+          {
+            "node": "webhookResponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scoreEngagement": {
+      "main": [
+        [
+          {
+            "node": "scoreIntent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scoreDemographics": {
+      "main": [
+        [
+          {
+            "node": "scoreEngagement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OutputParser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "scoreIntent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ChatModel": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "scoreIntent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scoreIntent": {
+      "main": [
+        [
+          {
+            "node": "calculateFinalScore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "evaluateQuality": {
+      "main": [
+        [
+          {
+            "node": "qualityValidation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "qualityValidation": {
+      "main": [
+        [
+          {
+            "node": "classifyLeadTier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "flagLowQuality",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "flagLowQuality": {
+      "main": [
+        [
+          {
+            "node": "logQualityError",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "logQualityError": {
+      "main": [
+        [
+          {
+            "node": "sendQualityAlert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sendQualityAlert": {
+      "main": [
+        [
+          {
+            "node": "useFallbackScore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "useFallbackScore": {
+      "main": [
+        [
+          {
+            "node": "classifyLeadTier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "af269966-2d3c-4736-bcf7-b875c93b16fc",
+  "meta": {
+    "instanceId": "44b5a59a33562e784f2dc2302170b2503b4b272b919680cc66f4c1a5627bed28"
+  },
+  "id": "EXAMPLE_CRED_ID",
+  "tags": []
+}

@@ -1,0 +1,325 @@
+{
+  "name": "Lead03-AI Lead Scoring Service",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        16,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "receiveScoringRequest"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\n// Check required fields for scoring\nconst required = ['full_name', 'verified_title', 'company', 'industry'];\nconst missing = required.filter(field => !input[field]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing fields for AI scoring: ${missing.join(', ')}`);\n}\n\n// Pass through\nreturn [{ json: input }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "validateScoringInput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\n// Get component scores from AI nodes\nconst scores = {\n  demographics: $('scoreDemographics').first().json.score || 0,\n  engagement: $('scoreEngagement').first().json.score || 0,\n  intent: $('scoreIntent').first().json.score || 0\n};\n\n// Weighted calculation\nconst weights = {\n  demographics: 0.25,  // 25% - baseline fit\n  engagement: 0.35,    // 35% - behavior matters most\n  intent: 0.40         // 40% - buying intent is critical\n};\n\nconst finalScore = Math.round(\n  scores.demographics * weights.demographics +\n  scores.engagement * weights.engagement +\n  scores.intent * weights.intent\n);\n\n// Determine grade and priority\nlet grade, label, priority, color;\nif (finalScore >= 85) {\n  grade = 'A+';\n  label = 'Hot Lead';\n  priority = 'Immediate';\n  color = '#FF0000';\n} else if (finalScore >= 70) {\n  grade = 'A';\n  label = 'Qualified Lead';\n  priority = 'High';\n  color = '#FF6600';\n} else if (finalScore >= 55) {\n  grade = 'B';\n  label = 'Warm Lead';\n  priority = 'Medium';\n  color = '#FFAA00';\n} else if (finalScore >= 40) {\n  grade = 'C';\n  label = 'Cool Lead';\n  priority = 'Low';\n  color = '#FFDD00';\n} else {\n  grade = 'D';\n  label = 'Cold Lead';\n  priority = 'Nurture';\n  color = '#CCCCCC';\n}\n\n// Generate recommendations\nfunction generateRecommendations(scores, finalScore) {\n  const recs = [];\n\n  if (scores.engagement > 70 && scores.intent < 40) {\n    recs.push({\n      type: 'nurture',\n      action: 'Send educational content to build intent',\n      reason: 'High engagement but unclear buying intent'\n    });\n  }\n\n  if (scores.intent > 70 && scores.engagement < 40) {\n    recs.push({\n      type: 'engage',\n      action: 'Immediate outreach call recommended',\n      reason: 'Strong buying signals but low engagement'\n    });\n  }\n\n  if (scores.demographics >= 80) {\n    recs.push({\n      type: 'personalize',\n      action: 'Executive-level outreach with case studies',\n      reason: 'Perfect ICP match'\n    });\n  }\n\n  if (finalScore >= 70) {\n    recs.push({\n      type: 'follow_up',\n      action: 'Follow up within 24 hours',\n      reason: 'High-quality lead with strong signals'\n    });\n  }\n\n  return recs;\n}\n\nconst recommendations = generateRecommendations(scores, finalScore);\n\nreturn [{\n  json: {\n    ...lead,\n    scoring: {\n      final_score: finalScore,\n      grade: grade,\n      label: label,\n      priority: priority,\n      color: color,\n      component_scores: scores,\n      weights: weights,\n      recommendations: recommendations,\n      scored_at: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "calculateFinalScore",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Score this lead's demographic fit (0-100):\n\nLead Information:\n- Name: {{ $json.full_name }}\n- Title: {{ $json.verified_title }}\n- Seniority: {{ $json.seniority }}\n- Company: {{ $json.company }}\n- Industry: {{ $json.industry }}\n- Company Size: {{ $json.employees }} employees\n- Revenue: {{ $json.revenue }}\n\nScoring Criteria:\n- Title relevance to B2B SaaS buyers (0-30 points)\n  * C-Level/VP: 25-30 points\n  * Director/Manager: 15-24 points\n  * Individual Contributor: 0-14 points\n\n- Seniority level (0-25 points)\n  * C-Level: 25 points\n  * VP: 20-24 points\n  * Director: 15-19 points\n  * Manager: 10-14 points\n  * Other: 0-9 points\n\n- Company size fit (0-20 points)\n  * Ideal: 100-500 employees = 20 points\n  * Good: 50-100 or 500-1000 = 15 points\n  * Acceptable: 10-50 or 1000+ = 10 points\n  * Too small: <10 = 5 points\n\n- Industry fit (0-15 points)\n  * Perfect match (SaaS, Tech, Software): 15 points\n  * Good match (Professional Services): 10 points\n  * Neutral (Other industries): 5 points\n\n- Revenue range (0-10 points)\n  * $10M+: 10 points\n  * $1M-10M: 7 points\n  * $500K-1M: 5 points\n  * Unknown: 3 points\n\nReturn ONLY valid JSON (no markdown, no extra text):\n{\n  \"score\": 75,\n  \"reasoning\": \"VP-level executive at mid-sized SaaS company with strong revenue indicators\"\n}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "maxOutputTokens": 200,
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        464,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "scoreDemographics",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Gemini(PaLM)- nickizen20"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Score this lead's engagement level (0-100):\n\nEngagement Metrics:\n- Website visits: {{ $json.website_visits }}\n- Email opens: {{ $json.email_opens }}\n- Email clicks: {{ $json.email_clicks }}\n- Form submissions: {{ $json.form_submissions }}\n- Pricing page viewed: {{ $json.has_pricing_page }}\n- Lead source: {{ $json.source }}\n- UTM Campaign: {{ $json.utm_campaign }}\n\nHistorical Context:\n- Previous submissions: {{ $json.previous_submissions }}\n- Past scores: {{ $json.past_scores }}\n- Last contact date: {{ $json.last_contact_date }}\n\nScoring Criteria:\n- Recency and frequency (0-30 points)\n  * Multiple visits in last 7 days: 25-30\n  * Single visit in last 30 days: 15-24\n  * Visit over 30 days ago: 0-14\n\n- Depth of engagement (0-25 points)\n  * Email clicks + form fills: 20-25\n  * Email opens only: 10-19\n  * Website visits only: 0-9\n\n- Intent signals (0-25 points)\n  * Viewed pricing page: +10\n  * Demo request: +15\n  * Multiple page views: +10\n  * Downloaded content: +10\n\n- Source quality (0-10 points)\n  * Direct/organic: 10\n  * Referral: 8\n  * Paid: 5\n  * Unknown: 2\n\n- Historical engagement (0-10 points)\n  * Returning lead with improving scores: 10\n  * New lead: 5\n  * Returning with declining scores: 2\n\nReturn ONLY valid JSON:\n{\n  \"score\": 65,\n  \"reasoning\": \"Moderate engagement with multiple website visits and email opens, but no high-intent actions like demo request\"\n}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "maxTokens": 250,
+          "temperature": 0.3
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        768,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "scoreEngagement",
+      "credentials": {
+        "openAiApi": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "OpenAi - ExampleOpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n    \"type\": \"object\",\n    \"properties\": {\n      \"score\": {\"type\": \"number\"},\n      \"reasoning\": {\"type\": \"string\"},\n      \"bant\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"budget\": {\"type\": \"object\"},\n          \"authority\": {\"type\": \"object\"},\n          \"need\": {\"type\": \"object\"},\n          \"timeline\": {\"type\": \"object\"}\n        }\n      },\n      \"confidence\": {\"type\": \"number\"}\n    }\n  }"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1200,
+        208
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "OutputParser"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyze buying intent for this lead (0-100):\n\nLead Profile:\n- Name: {{ $json.full_name }}\n- Title: {{ $json.verified_title }}\n- Seniority: {{ $json.seniority }}\n- Company: {{ $json.company }} ({{ $json.employees }} employees)\n- Industry: {{ $json.industry }}\n- Revenue: {{ $json.revenue }}\n\nCompany Research:\n{{ $json.company_research }}\n\nTechnology Stack:\n{{ $json.tech_stack }}\n\nAnalyze using BANT framework:\n\n1. BUDGET - Do they have budget?\n   - Revenue indicators: {{ $json.revenue }}\n   - Funding: {{ $json.funding }}\n   - Company size suggests budget tier\n   - Score 0-25 points\n\n2. AUTHORITY - Are they decision-maker?\n   - Title: {{ $json.verified_title }}\n   - Seniority: {{ $json.seniority }}\n   - C-Level/VP = high authority\n   - Score 0-25 points\n\n3. NEED - Do they have pain points we solve?\n   - Industry alignment\n   - Tech stack compatibility\n   - Company research insights\n   - Score 0-25 points\n\n4. TIMELINE - Are there urgency signals?\n   - Recent hiring (VP Sales, engineers)\n   - Funding announcements\n   - Expansion plans\n   - Market timing\n   - Score 0-25 points\n\nAlso consider:\n- Buying signals: hiring, funding, expansion, new product launches\n- Pain points: scaling challenges, manual processes, compliance needs\n- Competitive landscape: current tools, switching costs\n- Technology fit: compatible systems, integration potential\n\nReturn ONLY valid JSON:\n{\n  \"score\": 75,\n  \"reasoning\": \"Strong buying intent based on recent VP Sales hire and Series B funding. High authority (C-Level), clear budget ($50M+ revenue), timeline driven by expansion to EMEA market.\",\n  \"bant\": {\n    \"budget\": {\n      \"score\": 20,\n      \"rationale\": \"$50M revenue with $20M recent funding indicates strong budget\"\n    },\n    \"authority\": {\n      \"score\": 25,\n      \"rationale\": \"CEO is ultimate decision-maker for enterprise solutions\"\n    },\n    \"need\": {\n      \"score\": 18,\n      \"rationale\": \"Scaling challenges and EMEA expansion create clear need for our solution\"\n    },\n    \"timeline\": {\n      \"score\": 22,\n      \"rationale\": \"Recent VP Sales hire suggests active buying cycle within 3-6 months\"\n    }\n  },\n  \"confidence\": 0.85\n}\n",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a helpful assistant that analyzes lead buying intent and scores leads from 0-100 using the BANT framework."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        1056,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "scoreIntent"
+    },
+    {
+      "parameters": {
+        "options": {
+          "maxTokens": 1000,
+          "temperature": 0.7
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1056,
+        208
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "ChatModel"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "GPT-4O"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Evaluate the quality and consistency of this lead scoring:\n\nLead Data:\n{{ JSON.stringify($json, null, 2) }}\n\nFinal Score: {{ $json.scoring.final_score }}\n\nComponent Scores:\n- Demographics: {{ $json.scoring.component_scores.demographics }}\n- Engagement: {{ $json.scoring.component_scores.engagement }}\n- Intent: {{ $json.scoring.component_scores.intent }}\n\nGrade: {{ $json.scoring.grade }}\n\nQuality Checks:\n\n1. CONSISTENCY CHECK\n   - Do component scores align with lead data?\n   - Is final weighted score mathematically correct?\n   - Does grade match score thresholds?\n\n2. REASONABLENESS CHECK\n   - Are scores realistic given inputs?\n   - Any scores seem inflated or deflated?\n   - Do recommendations match scores?\n\n3. DATA QUALITY CHECK\n   - Are there missing critical fields?\n   - Any suspicious or placeholder data?\n   - Is enrichment sufficient?\n\n4. RED FLAGS\n   - Score manipulation indicators\n   - Unrealistic combinations (high score + no engagement)\n   - Inconsistent reasoning in component scores\n\nReturn ONLY valid JSON:\n{\n  \"quality_score\": 85,\n  \"is_valid\": true,\n  \"issues\": [],\n  \"suggested_adjustments\": \"None - scoring is consistent and reasonable\",\n  \"confidence\": 0.9\n}\n\nOR if issues found:\n{\n  \"quality_score\": 45,\n  \"is_valid\": false,\n  \"issues\": [\n    \"Demographics score (90) seems inflated given 'Manager' title\",\n    \"Intent score (80) inconsistent with zero engagement metrics\"\n  ],\n  \"suggested_adjustments\": \"Reduce demographics to 60-70 range, intent to 40-50 range based on actual data\",\n  \"confidence\": 0.65\n}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "maxTokens": 300,
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1536,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "evaluateQuality",
+      "credentials": {
+        "openAiApi": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "OpenAi - ExampleOpenAI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const scored = $input.first().json;\n\nreturn [{\n  json: {\n    success: true,\n    scoring: scored.scoring,\n    quality: {\n      score: scored.quality_score,\n      is_valid: scored.is_valid,\n      issues: scored.issues || []\n    },\n    // Include original lead data\n    lead: scored\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1888,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "formatScoringResponse"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "receiveScoringRequest": {
+      "main": [
+        [
+          {
+            "node": "validateScoringInput",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "calculateFinalScore": {
+      "main": [
+        [
+          {
+            "node": "evaluateQuality",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scoreDemographics": {
+      "main": [
+        [
+          {
+            "node": "scoreEngagement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scoreEngagement": {
+      "main": [
+        [
+          {
+            "node": "scoreIntent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OutputParser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "scoreIntent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "scoreIntent": {
+      "main": [
+        [
+          {
+            "node": "calculateFinalScore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ChatModel": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "scoreIntent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validateScoringInput": {
+      "main": [
+        [
+          {
+            "node": "scoreDemographics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "evaluateQuality": {
+      "main": [
+        [
+          {
+            "node": "formatScoringResponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "56fa0c7d-b893-46c9-95a6-a9254531c163",
+  "meta": {
+    "instanceId": "44b5a59a33562e784f2dc2302170b2503b4b272b919680cc66f4c1a5627bed28"
+  },
+  "id": "EXAMPLE_CRED_ID",
+  "tags": []
+}

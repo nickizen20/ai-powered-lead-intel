@@ -1,0 +1,395 @@
+{
+  "name": "Lead02-Company Enrichment Service",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -16,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "receiveEnrichmentRequest"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\n// Required fields check\nconst required = ['company_domain', 'company'];\nconst missing = required.filter(field => !input[field]);\n\nif (missing.length > 0) {\n  throw new Error(`Missing required fields: ${missing.join(', ')}`);\n}\n\n// Pass through with defaults\nreturn [{\n  json: {\n    company_domain: input.company_domain,\n    company: input.company,\n    linkedin_url: input.linkedin_url || null,\n    // Pass through any other fields from parent\n    ...input\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "validateInput"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "company_domain",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "splitForEnrichment"
+    },
+    {
+      "parameters": {
+        "url": "https://company.clearbit.com/v2/companies/find",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "clearbitApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "domain",
+              "value": "={{ $json.company_domain }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "enrichCompanyData",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        -288
+      ],
+      "alwaysOutputData": true,
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\n// Extract company data from Clearbit response\nconst companyData = {\n  revenue: item.metrics?.estimatedAnnualRevenue || null,\n  employees: item.metrics?.employees || null,\n  founded: item.foundedYear || null,\n  funding: item.metrics?.raised || null,\n  tech_stack: item.tech || [],\n  industry: item.category?.industry || null,\n  description: item.description || null\n};\n\nreturn [{\n  json: {\n    enrichment_source: 'clearbit',\n    company_data: companyData\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "enrichCompanyDataTransform",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        -288
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://' + $json.company_domain }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (compatible; n8nBot/1.0; +https://n8n.io)"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "analyzeCompanyWebsite",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        272
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "title",
+              "cssSelector": "title"
+            },
+            {
+              "key": "description",
+              "cssSelector": "meta[name=\"description\"]"
+            },
+            {
+              "key": "keywords",
+              "cssSelector": "meta[name=\"keywords\"]"
+            },
+            {
+              "key": "h1",
+              "cssSelector": "h1"
+            },
+            {
+              "key": "pricing_page",
+              "cssSelector": "a[href*=\"pricing\"]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "parseWebsiteContent",
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        992,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_LEAD_LOG_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Master Lead Log",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "company",
+              "lookupValue": "={{ $json.company }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "lookupHistoricalData",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        800,
+        96
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "mergeEnrichedData",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1328,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\n// Get enrichment data from merged sources\nconst enrichment = {\n  company: lead.enrichment_company || {},\n  linkedin: lead.enrichment_linkedin || {},\n  website: lead.enrichment_website || {},\n  historical: Array.isArray(lead.enrichment_historical) ? lead.enrichment_historical : []\n};\n\n// Helper functions\nfunction extractRevenueFromWebsite(website) {\n  if (!website || !website.description) return null;\n\n  const revenuePatterns = [\n    /\\$(\\d+)M revenue/i,\n    /revenue of \\$(\\d+)M/i,\n    /\\$(\\d+) million in sales/i\n  ];\n\n  for (const pattern of revenuePatterns) {\n    const match = website.description.match(pattern);\n    if (match) return `$${match[1]}M`;\n  }\n\n  return null;\n}\n\nfunction inferSeniority(title) {\n  if (!title) return 'Individual Contributor';\n  const titleLower = title.toLowerCase();\n\n  if (titleLower.includes('ceo') || titleLower.includes('president') || titleLower.includes('founder')) return 'C-Level';\n  if (titleLower.includes('cto') || titleLower.includes('cfo') || titleLower.includes('coo')) return 'C-Level';\n  if (titleLower.includes('vp') || titleLower.includes('vice president')) return 'VP';\n  if (titleLower.includes('director')) return 'Director';\n  if (titleLower.includes('manager')) return 'Manager';\n  if (titleLower.includes('senior') || titleLower.includes('lead')) return 'Senior';\n\n  return 'Individual Contributor';\n}\n\nfunction calculateEnrichmentScore(enrichment) {\n  let score = 0;\n  if (enrichment.company && Object.keys(enrichment.company).length > 0) score += 25;\n  if (enrichment.linkedin && Object.keys(enrichment.linkedin).length > 0) score += 25;\n  if (enrichment.website && Object.keys(enrichment.website).length > 0) score += 25;\n  if (enrichment.historical && enrichment.historical.length > 0) score += 25;\n  return score;\n}\n\n// Merge enrichment data with preference order\nconst enriched = {\n  ...lead,\n\n  // Company data (prefer API > website)\n  revenue: enrichment.company.revenue || extractRevenueFromWebsite(enrichment.website),\n  employees: enrichment.company.employees || enrichment.linkedin.company_size,\n  industry: enrichment.company.industry || lead.industry,\n  tech_stack: enrichment.company.tech_stack || [],\n  founded_year: enrichment.company.founded,\n  funding: enrichment.company.funding,\n\n  // Contact data (prefer LinkedIn > form)\n  verified_title: enrichment.linkedin.title || lead.title,\n  seniority: enrichment.linkedin.seniority || inferSeniority(lead.title),\n  years_experience: enrichment.linkedin.years_experience,\n\n  // Engagement signals\n  has_pricing_page: !!enrichment.website.pricing_page,\n  website_keywords: enrichment.website.keywords || [],\n\n  // Historical context\n  previous_submissions: enrichment.historical.length || 0,\n  last_contact_date: enrichment.historical[0]?.created_at,\n  past_scores: enrichment.historical.map(h => h.score).filter(Boolean) || [],\n\n  // Enrichment metadata\n  enrichment_sources: [\n    enrichment.company ? 'clearbit' : null,\n    enrichment.linkedin ? 'linkedin' : null,\n    enrichment.website ? 'website' : null,\n    enrichment.historical.length > 0 ? 'crm' : null\n  ].filter(Boolean),\n  enrichment_score: calculateEnrichmentScore(enrichment),\n  enriched_at: new Date().toISOString()\n};\n\nreturn [{ json: enriched }];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "normalizeEnrichedData",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://nubela.co/proxycurl/api/v2/linkedin",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "proxycurlApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $json.linkedin_url }}"
+            },
+            {
+              "name": "fallback_to_cache",
+              "value": "on-error"
+            },
+            {
+              "name": "use_cache",
+              "value": "if-present"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "enrichLinkedInProfile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        -80
+      ],
+      "alwaysOutputData": true,
+      "continueOnFail": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "receiveEnrichmentRequest": {
+      "main": [
+        [
+          {
+            "node": "validateInput",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validateInput": {
+      "main": [
+        [
+          {
+            "node": "splitForEnrichment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "enrichCompanyData": {
+      "main": [
+        [
+          {
+            "node": "enrichCompanyDataTransform",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "analyzeCompanyWebsite": {
+      "main": [
+        [
+          {
+            "node": "parseWebsiteContent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "splitForEnrichment": {
+      "main": [
+        [
+          {
+            "node": "enrichCompanyData",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "lookupHistoricalData",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "analyzeCompanyWebsite",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "enrichLinkedInProfile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "enrichCompanyDataTransform": {
+      "main": [
+        [
+          {
+            "node": "mergeEnrichedData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "lookupHistoricalData": {
+      "main": [
+        [
+          {
+            "node": "mergeEnrichedData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parseWebsiteContent": {
+      "main": [
+        [
+          {
+            "node": "mergeEnrichedData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "mergeEnrichedData": {
+      "main": [
+        [
+          {
+            "node": "normalizeEnrichedData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "enrichLinkedInProfile": {
+      "main": [
+        [
+          {
+            "node": "mergeEnrichedData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c6a48385-6d73-43c0-9f02-21fa119b45e1",
+  "meta": {
+    "instanceId": "44b5a59a33562e784f2dc2302170b2503b4b272b919680cc66f4c1a5627bed28"
+  },
+  "id": "EXAMPLE_CRED_ID",
+  "tags": []
+}

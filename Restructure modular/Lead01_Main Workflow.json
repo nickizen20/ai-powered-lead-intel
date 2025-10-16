@@ -1,0 +1,1213 @@
+{
+  "name": "Lead01_Main Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "webhookLeadIntake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -4992,
+        1040
+      ],
+      "webhookId": "lead-intake"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\n// Get webhook data\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  try {\n    const lead = item.json;\n    const headers = item.json.headers || {};\n\n    // HMAC Signature Validation\n    const receivedSignature = headers['x-webhook-signature'];\n    const webhookSecret = process.env.WEBHOOK_SECRET || 'your-secret-key';\n\n    if (receivedSignature) {\n      const expectedSignature = crypto\n        .createHmac('sha256', webhookSecret)\n        .update(JSON.stringify(lead.body || lead))\n        .digest('hex');\n\n      if (receivedSignature !== expectedSignature) {\n        throw new Error('Invalid webhook signature');\n      }\n    }\n\n    // Extract body if wrapped\n    const data = lead.body || lead;\n\n    // Required fields validation\n    const required = ['email', 'company', 'first_name', 'last_name'];\n    const missing = required.filter(field => !data[field]);\n\n    if (missing.length > 0) {\n      throw new Error(`Missing required fields: ${missing.join(', ')}`);\n    }\n\n    // Email validation (improved)\n    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/;\n    if (!emailRegex.test(data.email)) {\n      throw new Error('Invalid email format');\n    }\n\n    // Helper functions\n    function generateUUID() {\n      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n        const r = Math.random() * 16 | 0;\n        const v = c === 'x' ? r : (r & 0x3 | 0x8);\n        return v.toString(16);\n      });\n    }\n\n    function capitalizeFirst(str) {\n      if (!str) return '';\n      return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();\n    }\n\n    function normalizePhone(phone) {\n      if (!phone) return null;\n      // E.164 format validation\n      const cleaned = phone.replace(/\\D/g, '');\n      return cleaned.length >= 10 ? cleaned : null;\n    }\n\n    function extractDomain(url) {\n      try {\n        if (!url) return null;\n        const domain = url\n          .replace(/^https?:\\/\\//, '')\n          .replace(/^www\\./, '')\n          .replace(/\\/.*$/, '')\n          .toLowerCase();\n        return domain;\n      } catch {\n        return null;\n      }\n    }\n\n    function normalizeCompanySize(size) {\n      if (!size) return 'Unknown';\n      if (typeof size === 'number') {\n        if (size <= 10) return 'Small (1-10)';\n        if (size <= 50) return 'Small (11-50)';\n        if (size <= 200) return 'Medium (51-200)';\n        if (size <= 500) return 'Medium (201-500)';\n        if (size <= 1000) return 'Large (501-1000)';\n        return 'Enterprise (1000+)';\n      }\n\n      const ranges = {\n        '1-10': 'Small (1-10)',\n        '11-50': 'Small (11-50)',\n        '51-200': 'Medium (51-200)',\n        '201-500': 'Medium (201-500)',\n        '501-1000': 'Large (501-1000)',\n        '1001+': 'Enterprise (1000+)',\n        '1000+': 'Enterprise (1000+)'\n      };\n\n      return ranges[size] || size;\n    }\n\n    // Normalize data\n    const normalized = {\n      // Identifiers\n      lead_id: generateUUID(),\n      email: data.email.toLowerCase().trim(),\n\n      // Contact Info\n      first_name: capitalizeFirst(data.first_name),\n      last_name: capitalizeFirst(data.last_name),\n      full_name: `${capitalizeFirst(data.first_name)} ${capitalizeFirst(data.last_name)}`,\n      title: data.title || data.job_title || 'Unknown',\n      phone: normalizePhone(data.phone),\n\n      // Company Info\n      company: data.company.trim(),\n      company_domain: extractDomain(data.website || data.company_website) || extractDomain(data.email),\n      industry: data.industry || 'Unknown',\n      company_size: normalizeCompanySize(data.company_size || data.employees),\n\n      // Source & Attribution\n      source: data.source || 'unknown',\n      utm_source: data.utm_source || null,\n      utm_medium: data.utm_medium || null,\n      utm_campaign: data.utm_campaign || null,\n\n      // Engagement Data\n      form_submissions: 1,\n      website_visits: parseInt(data.website_visits) || 0,\n      email_opens: parseInt(data.email_opens) || 0,\n      email_clicks: parseInt(data.email_clicks) || 0,\n\n      // Metadata\n      created_at: new Date().toISOString(),\n      ingested_at: new Date().toISOString(),\n      raw_data: JSON.stringify(data)\n    };\n\n    results.push({ json: normalized });\n\n  } catch (error) {\n    // Log error and continue (will be caught by error handling layer)\n    results.push({\n      json: {\n        error: true,\n        error_message: error.message,\n        error_node: 'validateLeadData',\n        raw_data: JSON.stringify(item.json)\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "validateLeadData",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4784,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_LEAD_LOG_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "checkDuplicateLead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -4592,
+        1040
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst lookupResult = $('checkDuplicateLead').all();\n\n// Check if lookup found results\nconst isDuplicate = lookupResult && lookupResult.length > 0 && lookupResult[0].json.row;\n\nreturn [{\n  json: {\n    ...item,\n    is_duplicate: isDuplicate,\n    existing_row: isDuplicate ? lookupResult[0].json.row : null\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "isDuplicateCheck",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4384,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "enrichment_score_check",
+              "leftValue": "={{ $json.enrichment_score }}",
+              "rightValue": 25,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "handleEnrichmentErrors",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -3616,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "company_not_empty",
+              "leftValue": "={{ $json.company }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "company_length",
+              "leftValue": "={{ $json.company.length }}",
+              "rightValue": 3,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "id": "title_not_empty",
+              "leftValue": "={{ $json.title }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "enrichment_sufficient",
+              "leftValue": "={{ $json.enrichment_score }}",
+              "rightValue": 25,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "preValidationCheck",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -3232,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\n// Default scoring when insufficient data for AI\nconst defaultScore = 40; // Cold lead\n\nreturn [{\n  json: {\n    ...lead,\n    scoring: {\n      final_score: defaultScore,\n      grade: 'C',\n      label: 'Cold Lead',\n      priority: 'Nurture',\n      color: '#CCCCCC',\n      component_scores: {\n        demographics: 0,\n        engagement: 0,\n        intent: 0\n      },\n      weights: { demographics: 0.25, engagement: 0.35, intent: 0.40 },\n      recommendations: [{\n        type: 'data_enrichment',\n        action: 'Gather more data before scoring',\n        reason: 'Insufficient data for AI analysis'\n      }],\n      scored_at: new Date().toISOString(),\n      ai_skipped: true,\n      reason: 'Insufficient enrichment data'\n    }\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "useDefaultScore",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2832,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.scoring.final_score }}",
+                    "rightValue": 85,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    },
+                    "id": "EXAMPLE-NODE-ID"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "hot_leads"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.scoring.final_score }}",
+                    "rightValue": 60,
+                    "operator": {
+                      "type": "number",
+                      "operation": "gte"
+                    },
+                    "id": "EXAMPLE-NODE-ID"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "warm_leads"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.scoring.final_score }}",
+                    "rightValue": 60,
+                    "operator": {
+                      "type": "number",
+                      "operation": "lt"
+                    },
+                    "id": "EXAMPLE-NODE-ID"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cold_leads"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "none"
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "classifyLeadTier",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -2240,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "otherOptions": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "routeHotLeads",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        -1936,
+        432
+      ],
+      "webhookId": "EXAMPLE-WEBHOOK-ID"
+    },
+    {
+      "parameters": {
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "customPropertiesUi": {
+            "customPropertiesValues": [
+              {
+                "property": "firstname",
+                "value": "={{ $json.first_name }}"
+              },
+              {
+                "property": "lastname",
+                "value": "={{ $json.last_name }}"
+              },
+              {
+                "property": "company",
+                "value": "={{ $json.company }}"
+              },
+              {
+                "property": "jobtitle",
+                "value": "={{ $json.verified_title }}"
+              },
+              {
+                "property": "lead_score",
+                "value": "={{ $json.scoring.final_score }}"
+              },
+              {
+                "property": "lead_grade",
+                "value": "={{ $json.scoring.grade }}"
+              },
+              {
+                "property": "lifecyclestage",
+                "value": "lead"
+              },
+              {
+                "property": "hs_lead_status",
+                "value": "NEW"
+              }
+            ]
+          }
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "routeWarmLeads",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2,
+      "position": [
+        -1936,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "nurture_strategy",
+              "name": "nurture_strategy",
+              "value": "long_term_education",
+              "type": "string"
+            },
+            {
+              "id": "next_action",
+              "name": "next_action",
+              "value": "Add to monthly newsletter",
+              "type": "string"
+            },
+            {
+              "id": "review_date",
+              "name": "review_date",
+              "value": "={{ $now.plus({ months: 3 }).toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "routeColdLeads",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1936,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\n// Calculate execution time\nconst executionStart = new Date(lead.ingested_at).getTime();\nconst executionEnd = Date.now();\nconst duration = (executionEnd - executionStart) / 1000;\n\n// Count operations\nconst apiCalls = lead.enrichment_sources?.length || 0;\nconst sheetsOps = 4;\n\nconst performance = {\n  execution_time_seconds: duration,\n  execution_time_human: `${Math.floor(duration / 60)}m ${Math.round(duration % 60)}s`,\n  api_calls_made: apiCalls,\n  sheets_operations: sheetsOps,\n  workflow_id: $workflow.id,\n  execution_id: $execution.id\n};\n\nreturn [{\n  json: {\n    ...lead,\n    performance\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "trackExecutionTime",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1056,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\n\n// Token cost per million tokens\nconst costs = {\n  'gemini-flash': 0,\n  'gpt-4o-mini': 0.15 / 1_000_000,\n  'claude-sonnet': 3 / 1_000_000,\n  'gpt-4o': 2.5 / 1_000_000\n};\n\n// Estimated token usage\nconst usage = {\n  demographics: { model: 'gemini-flash', tokens: 500 },\n  engagement: { model: 'gpt-4o-mini', tokens: 800 },\n  intent: { model: 'claude-sonnet', tokens: 1500 },\n  judge: { model: 'gpt-4o', tokens: 600 }\n};\n\n// Calculate total cost\nconst totalCost = Object.values(usage).reduce((sum, item) => {\n  return sum + (costs[item.model] * item.tokens);\n}, 0);\n\nconst aiCost = {\n  total_usd: totalCost.toFixed(6),\n  breakdown: usage,\n  cost_per_lead: totalCost.toFixed(6),\n  estimated_monthly: (totalCost * 500 * 30).toFixed(2),\n  ai_skipped: lead.scoring?.ai_skipped || false\n};\n\nreturn [{\n  json: {\n    ...lead,\n    ai_cost: aiCost\n  }\n}];"
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "calculateAICost",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -864,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_LEAD_LOG_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Dead Letter Queue",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "lead_id": "={{ $json.lead_id }}",
+            "email": "={{ $json.email }}",
+            "error_message": "={{ $json.error_message }}",
+            "error_node": "={{ $json.error_node }}",
+            "error_stack": "={{ $json.error_stack }}",
+            "raw_data": "={{ JSON.stringify($json) }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "logErrors",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        -928,
+        1360
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "text": "=✅ Lead processed successfully!\n\nLead: {{ $json.full_name }}\nScore: {{ $json.scoring.final_score }} ({{ $json.scoring.grade }})\nExecution Time: {{ $json.performance.execution_time_human }}\nAI Cost: ${{ $json.ai_cost.total_usd }}",
+        "otherOptions": {}
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "sendSlackMonitoring",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [
+        -672,
+        640
+      ],
+      "webhookId": "EXAMPLE-WEBHOOK-ID"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n    \"status\": $json.error ? \"error\" : \"success\",\n    \"lead_id\": $json.lead_id,\n    \"score\": $json.error ? null : $json.scoring.final_score,\n    \"grade\": $json.error ? null : $json.scoring.grade,\n    \"message\": $json.error ? $json.error_message : \"Lead processed successfully\",\n    \"error_details\": $json.error ? {\n      \"error_node\": $json.error_node,\n      \"error_stack\": $json.error_stack,\n      \"timestamp\": $now.toISO()\n    } : null\n  } }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "EXAMPLE-NODE-ID",
+      "name": "webhookResponse",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -464,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "leftValue": "={{ $json.quality_score }}",
+              "rightValue": 70,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2560,
+        688
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "qualityValidation"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "name": "quality_issue",
+              "value": true,
+              "type": "string"
+            },
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "name": "quality_score",
+              "value": "={{ $json.quality_score }}",
+              "type": "string"
+            },
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "name": "quality_issues",
+              "value": "={{ JSON.stringify($json.issues) }}",
+              "type": "string"
+            },
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "name": "review_required",
+              "value": "true",
+              "type": "string"
+            },
+            {
+              "id": "EXAMPLE-NODE-ID",
+              "name": "flagged_at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2336,
+        1024
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "flagLowQuality"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1smFeYTj4r0bc6HnDw54wI8sOo1ooaVK_FXlEMQ7eSfs",
+          "mode": "list",
+          "cachedResultName": "LinkedIn Post Generator",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1smFeYTj4r0bc6HnDw54wI8sOo1ooaVK_FXlEMQ7eSfs/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1smFeYTj4r0bc6HnDw54wI8sOo1ooaVK_FXlEMQ7eSfs/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Keyword",
+              "displayName": "Keyword",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Post Title",
+              "displayName": "Post Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Post Description",
+              "displayName": "Post Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Post Image Prompt",
+              "displayName": "Post Image Prompt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Image URL",
+              "displayName": "Image URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -2128,
+        1024
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "logQualityError",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Google Sheets - ExampleUser"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "text": "=️Low Quality Score Detected\n\nLead: {{ $json.full_name }} ({{ $json.email }})\nQuality Score: {{ $json.quality_score }}/100\nValid: {{ $json.is_valid }}\n\nIssues Found:\n{{ $json.issues.join('\\n- ') }}\n\nSuggested Adjustments:\n{{ $json.suggested_adjustments }}\n\nFinal Score: {{ $json.scoring.final_score }}\nComponent Scores: D:{{ $json.scoring.component_scores.demographics }} | E:{{\n$json.scoring.component_scores.engagement }} | I:{{ $json.scoring.component_scores.intent }}\n\nAction: Manual review required",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        -1936,
+        1024
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "sendQualityAlert",
+      "webhookId": "EXAMPLE-WEBHOOK-ID",
+      "credentials": {
+        "slackOAuth2Api": {
+          "id": "EXAMPLE_CRED_ID",
+          "name": "Slack - nickizen20"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": " const lead = $input.first().json;\n\n  // Use conservative fallback scoring when quality is low\n  const fallbackScore = 50; // Neutral score\n\n  return [{\n    json: {\n      ...lead,\n      scoring: {\n        ...lead.scoring,\n        final_score: fallbackScore,\n        grade: 'B',\n        label: 'Warm Lead',\n        priority: 'Medium',\n        quality_override: true,\n        original_score: lead.scoring.final_score,\n        fallback_reason: 'Low quality AI scoring - using conservative fallback'\n      }\n    }\n  }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1728,
+        1024
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "useFallbackScore"
+    },
+    {
+      "parameters": {
+        "content": "## Intake & Validation\n ",
+        "height": 352,
+        "width": 816
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -5040,
+        896
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Intelligent Routing\n",
+        "height": 944,
+        "width": 1104
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2624,
+        336
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## Monitoring & Response\n",
+        "height": 432,
+        "width": 896
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1152,
+        464
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "content": "## Error Handling Path",
+        "height": 272,
+        "width": 448,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1120,
+        1248
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note6"
+    },
+    {
+      "parameters": {
+        "source": "parameter",
+        "workflowJson": "{\n    \"id\": \"Lead02-Company Enrichment Service\",\n    \"data\": {\n      \"company_domain\": \"={{ $json.company_domain }}\",\n      \"company\": \"={{ $json.company }}\",\n      \"linkedin_url\": \"={{ $json.linkedin_url }}\",\n      \"email\": \"={{ $json.email }}\",\n      \"full_name\": \"={{ $json.full_name }}\",\n      \"title\": \"={{ $json.title }}\"\n    }\n  }\n\n\n",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -4096,
+        1040
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "callEnrichmentWorkflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\n\n// Extract enriched data from sub-workflow response\nconst enrichedData = response.enriched_data || response;\n\n// Merge with original lead data\nconst lead = $('isDuplicateCheck').first().json;\n\nreturn [{\n  json: {\n    ...lead,\n    ...enrichedData\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3856,
+        1040
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "processEnrichmentResponse"
+    },
+    {
+      "parameters": {
+        "source": "parameter",
+        "workflowJson": "{\n    \"id\": \"Lead02-AI Lead Scoring Service\",\n    \"data\": \"={{ $json }}\"\n}\n\n\n",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -3024,
+        688
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "callAIScoringWorkflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst lead = $input.first().json.lead || response;\n\nreturn [{\n  json: {\n    ...lead,\n    scoring: response.scoring,\n    quality_score: response.quality.score,\n    is_valid: response.quality.is_valid,\n    issues: response.quality.issues\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2832,
+        688
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "processScoringResponse"
+    },
+    {
+      "parameters": {
+        "source": "parameter",
+        "workflowJson": "{\n    \"id\": \"Lead04_Lead Data Persistence\",\n    \"data\": \"={{ $json }}\"\n}\n\n\n",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -1392,
+        624
+      ],
+      "id": "EXAMPLE-NODE-ID",
+      "name": "callDataPersistenceWorkflow"
+    },
+    {
+      "parameters": {
+        "content": "## Data Enrichment\n ",
+        "height": 352,
+        "width": 816
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -4208,
+        896
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## AI Scoring Engine\n ",
+        "height": 560,
+        "width": 736
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -3376,
+        544
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Google Sheets Sync\n",
+        "height": 432,
+        "width": 336
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1504,
+        464
+      ],
+      "typeVersion": 1,
+      "id": "EXAMPLE-NODE-ID",
+      "name": "Sticky Note4"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "webhookLeadIntake": {
+      "main": [
+        [
+          {
+            "node": "validateLeadData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "validateLeadData": {
+      "main": [
+        [
+          {
+            "node": "checkDuplicateLead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "checkDuplicateLead": {
+      "main": [
+        [
+          {
+            "node": "isDuplicateCheck",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "isDuplicateCheck": {
+      "main": [
+        [
+          {
+            "node": "callEnrichmentWorkflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "handleEnrichmentErrors": {
+      "main": [
+        [
+          {
+            "node": "preValidationCheck",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "logErrors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "preValidationCheck": {
+      "main": [
+        [
+          {
+            "node": "callAIScoringWorkflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "useDefaultScore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "useDefaultScore": {
+      "main": [
+        [
+          {
+            "node": "classifyLeadTier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "classifyLeadTier": {
+      "main": [
+        [
+          {
+            "node": "routeHotLeads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "routeWarmLeads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "routeColdLeads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "routeHotLeads": {
+      "main": [
+        [
+          {
+            "node": "callDataPersistenceWorkflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "routeWarmLeads": {
+      "main": [
+        [
+          {
+            "node": "callDataPersistenceWorkflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "routeColdLeads": {
+      "main": [
+        [
+          {
+            "node": "callDataPersistenceWorkflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "trackExecutionTime": {
+      "main": [
+        [
+          {
+            "node": "calculateAICost",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "calculateAICost": {
+      "main": [
+        [
+          {
+            "node": "sendSlackMonitoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "logErrors": {
+      "main": [
+        [
+          {
+            "node": "webhookResponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sendSlackMonitoring": {
+      "main": [
+        [
+          {
+            "node": "webhookResponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "qualityValidation": {
+      "main": [
+        [
+          {
+            "node": "classifyLeadTier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "flagLowQuality",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "flagLowQuality": {
+      "main": [
+        [
+          {
+            "node": "logQualityError",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "logQualityError": {
+      "main": [
+        [
+          {
+            "node": "sendQualityAlert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "sendQualityAlert": {
+      "main": [
+        [
+          {
+            "node": "useFallbackScore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "useFallbackScore": {
+      "main": [
+        [
+          {
+            "node": "classifyLeadTier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "callEnrichmentWorkflow": {
+      "main": [
+        [
+          {
+            "node": "processEnrichmentResponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "processEnrichmentResponse": {
+      "main": [
+        [
+          {
+            "node": "handleEnrichmentErrors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "callAIScoringWorkflow": {
+      "main": [
+        [
+          {
+            "node": "processScoringResponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "processScoringResponse": {
+      "main": [
+        [
+          {
+            "node": "qualityValidation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "callDataPersistenceWorkflow": {
+      "main": [
+        [
+          {
+            "node": "trackExecutionTime",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "acce8d39-d8e3-4d62-963e-acb97ea32cd0",
+  "meta": {
+    "instanceId": "44b5a59a33562e784f2dc2302170b2503b4b272b919680cc66f4c1a5627bed28"
+  },
+  "id": "EXAMPLE_CRED_ID",
+  "tags": []
+}
